@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>宮廟小編神器 - Temple Marketing Generator</title>
+    <meta name="description" content="協助宮廟人員快速生成單頁官網與社群宣傳圖的免費線上工具">
+
+    <!-- Tailwind CSS v3 Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        temple: ['"Microsoft JhengHei"', '"Noto Sans TC"', 'sans-serif'],
+                    },
+                    colors: {
+                        temple: {
+                            red: '#B22222',
+                            gold: '#DAA520',
+                            darkRed: '#8B0000',
+                            cream: '#FFF8DC',
+                            brown: '#8B4513',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Alpine.js v3 -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- html2canvas -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+    <style>
+        *, *::before, *::after { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; }
+
+        /* 隱藏 range 預設樣式統一 */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #B22222;
+            cursor: pointer;
+        }
+
+        /* 預覽區不可選取文字 */
+        .preview-area { user-select: none; -webkit-user-select: none; }
+
+        /* 預覽區容器比例 */
+        .ratio-3-4 { aspect-ratio: 3/4; }
+        .ratio-1-1 { aspect-ratio: 1/1; }
+        .ratio-9-16 { aspect-ratio: 9/16; }
+        .ratio-4-3 { aspect-ratio: 4/3; }
+
+        /* 拖曳時游標 */
+        .drag-cursor { cursor: grab; }
+        .drag-cursor:active { cursor: grabbing; }
+
+        /* 公告模式紅框 */
+        .notice-border {
+            border: 4px solid #B22222;
+            border-radius: 4px;
+        }
+
+        /* 動畫 */
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Tab active 底線 */
+        .tab-active {
+            border-bottom: 3px solid #B22222;
+            color: #B22222;
+            font-weight: 700;
+        }
+
+        /* 圓形神像框 */
+        .deity-circle {
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            border: 4px solid #DAA520;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(218,165,32,0.4);
+        }
+
+        /* 滾動條美化 */
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #c0c0c0; border-radius: 3px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen" x-data="templeApp()" x-init="init()">
+
+    <!-- ===== HEADER ===== -->
+    <header class="bg-gradient-to-r from-temple-darkRed to-temple-red text-white shadow-lg">
+        <div class="max-w-screen-2xl mx-auto px-4 py-3">
+            <div class="flex items-center justify-between">
+                <h1 class="text-xl font-bold tracking-wide">
+                    <span class="text-temple-gold">&#x26E9;</span> 宮廟小編神器
+                </h1>
+                <span class="text-xs text-red-200 hidden sm:inline">Temple Marketing Generator</span>
+            </div>
+            <!-- Tabs -->
+            <nav class="flex gap-1 mt-2 -mb-px overflow-x-auto">
+                <template x-for="tab in tabs" :key="tab.key">
+                    <button
+                        @click="switchMode(tab.key)"
+                        :class="currentMode === tab.key ? 'tab-active bg-white/10' : 'text-red-200 hover:text-white hover:bg-white/5'"
+                        class="px-4 py-2 text-sm rounded-t-lg transition-all whitespace-nowrap"
+                        x-text="tab.label">
+                    </button>
+                </template>
+            </nav>
+        </div>
+    </header>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <main class="max-w-screen-2xl mx-auto p-4">
+        <div class="flex flex-col lg:flex-row gap-4">
+
+            <!-- ===== LEFT COLUMN - 控制台 ===== -->
+            <div class="w-full lg:w-[380px] lg:flex-shrink-0 space-y-4">
+
+                <!-- 共用: 宮廟名稱 -->
+                <div class="bg-white rounded-xl shadow-sm p-4 fade-in">
+                    <label class="block text-sm font-bold text-gray-700 mb-1">宮廟名稱</label>
+                    <input type="text" x-model="templeData.name" @input="saveToStorage()"
+                           placeholder="例: 大甲鎮瀾宮"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                </div>
+
+                <!-- 共用: 圖片上傳與控制 -->
+                <div class="bg-white rounded-xl shadow-sm p-4 fade-in">
+                    <label class="block text-sm font-bold text-gray-700 mb-2">圖片上傳</label>
+                    <input type="file" accept="image/*" @change="handleImageUpload($event)"
+                           class="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-red-50 file:text-temple-red hover:file:bg-red-100 cursor-pointer">
+
+                    <template x-if="imageState.src">
+                        <div class="mt-3 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-500">缩放</span>
+                                <span class="text-xs text-gray-500" x-text="(imageState.scale * 100).toFixed(0) + '%'"></span>
+                            </div>
+                            <input type="range" min="100" max="300" x-model="imageState.scale100"
+                                   @input="imageState.scale = imageState.scale100 / 100; saveToStorage()"
+                                   class="w-full">
+                            <button @click="resetImage()"
+                                    class="text-xs text-temple-red hover:underline">
+                                重置圖片位置
+                            </button>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- 輸出尺寸選擇 (非 Site 模式) -->
+                <div class="bg-white rounded-xl shadow-sm p-4 fade-in" x-show="currentMode !== 'site'">
+                    <label class="block text-sm font-bold text-gray-700 mb-2">輸出尺寸</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <template x-for="size in sizeOptions" :key="size.key">
+                            <button @click="selectedSize = size.key; saveToStorage()"
+                                    :class="selectedSize === size.key
+                                        ? 'bg-temple-red text-white border-temple-red'
+                                        : 'bg-white text-gray-700 border-gray-300 hover:border-temple-red'"
+                                    class="border rounded-lg px-3 py-2 text-xs font-medium transition-all">
+                                <span x-text="size.label"></span>
+                                <span class="block text-[10px] opacity-70" x-text="size.desc"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- ===== Site Mode 欄位 ===== -->
+                <div x-show="currentMode === 'site'" class="bg-white rounded-xl shadow-sm p-4 space-y-3 fade-in">
+                    <h3 class="text-sm font-bold text-gray-700 border-b pb-1">官網資訊</h3>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">地址</label>
+                        <input type="text" x-model="templeData.address" @input="saveToStorage()"
+                               placeholder="台中市大甲區順天路158號"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">電話</label>
+                        <input type="text" x-model="templeData.phone" @input="saveToStorage()"
+                               placeholder="04-2676-3522"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Google Map 連結</label>
+                        <input type="url" x-model="templeData.mapUrl" @input="saveToStorage()"
+                               placeholder="https://maps.google.com/..."
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">簡介</label>
+                        <textarea x-model="templeData.intro" @input="saveToStorage()"
+                                  rows="3" placeholder="宮廟簡介..."
+                                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none resize-none"></textarea>
+                    </div>
+                </div>
+
+                <!-- ===== Light Mode 欄位 ===== -->
+                <div x-show="currentMode === 'light'" class="bg-white rounded-xl shadow-sm p-4 space-y-3 fade-in">
+                    <div class="flex items-center justify-between border-b pb-1">
+                        <h3 class="text-sm font-bold text-gray-700">點燈資訊</h3>
+                        <button @click="fillTemplate('light')" class="text-xs bg-temple-gold/20 text-temple-brown px-2 py-1 rounded hover:bg-temple-gold/30 transition">
+                            填入範本
+                        </button>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">燈種名稱</label>
+                        <input type="text" x-model="templeData.lightName" @input="saveToStorage()"
+                               placeholder="光明燈 / 太歲燈 / 財神燈"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">價格</label>
+                        <input type="text" x-model="templeData.lightPrice" @input="saveToStorage()"
+                               placeholder="NT$ 600"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">期間說明</label>
+                        <input type="text" x-model="templeData.lightPeriod" @input="saveToStorage()"
+                               placeholder="農曆正月初一 至 十二月三十"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">附加說明</label>
+                        <textarea x-model="templeData.lightNote" @input="saveToStorage()"
+                                  rows="2" placeholder="歡迎信眾蒞臨點燈祈福..."
+                                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none resize-none"></textarea>
+                    </div>
+                </div>
+
+                <!-- ===== Birthday Mode 欄位 ===== -->
+                <div x-show="currentMode === 'birthday'" class="bg-white rounded-xl shadow-sm p-4 space-y-3 fade-in">
+                    <div class="flex items-center justify-between border-b pb-1">
+                        <h3 class="text-sm font-bold text-gray-700">神明誕辰</h3>
+                        <button @click="fillTemplate('birthday')" class="text-xs bg-temple-gold/20 text-temple-brown px-2 py-1 rounded hover:bg-temple-gold/30 transition">
+                            填入範本
+                        </button>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">神明聖號</label>
+                        <input type="text" x-model="templeData.deityName" @input="saveToStorage()"
+                               placeholder="天上聖母 / 關聖帝君"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">祝壽日期</label>
+                        <input type="text" x-model="templeData.birthdayDate" @input="saveToStorage()"
+                               placeholder="農曆三月二十三日"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">活動時間 (國曆)</label>
+                        <input type="text" x-model="templeData.birthdayDateSolar" @input="saveToStorage()"
+                               placeholder="2026年4月19日 (日)"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">祝壽說明</label>
+                        <textarea x-model="templeData.birthdayNote" @input="saveToStorage()"
+                                  rows="2" placeholder="誠邀十方信眾共襄盛舉..."
+                                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none resize-none"></textarea>
+                    </div>
+                </div>
+
+                <!-- ===== Notice Mode 欄位 ===== -->
+                <div x-show="currentMode === 'notice'" class="bg-white rounded-xl shadow-sm p-4 space-y-3 fade-in">
+                    <div class="flex items-center justify-between border-b pb-1">
+                        <h3 class="text-sm font-bold text-gray-700">公告內容</h3>
+                        <button @click="fillTemplate('notice')" class="text-xs bg-temple-gold/20 text-temple-brown px-2 py-1 rounded hover:bg-temple-gold/30 transition">
+                            填入範本
+                        </button>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">公告標題</label>
+                        <input type="text" x-model="templeData.noticeTitle" @input="saveToStorage()"
+                               placeholder="春節開放時間公告"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">公告內文</label>
+                        <textarea x-model="templeData.noticeContent" @input="saveToStorage()"
+                                  rows="5" placeholder="內文..."
+                                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">落款單位</label>
+                        <input type="text" x-model="templeData.noticeOrg" @input="saveToStorage()"
+                               placeholder="XX宮管理委員會"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">公告日期</label>
+                        <input type="text" x-model="templeData.noticeDate" @input="saveToStorage()"
+                               placeholder="民國115年2月11日"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none">
+                    </div>
+                </div>
+
+                <!-- 下載按鈕 -->
+                <div class="bg-white rounded-xl shadow-sm p-4 fade-in">
+                    <button @click="handleDownload()"
+                            class="w-full bg-gradient-to-r from-temple-darkRed to-temple-red text-white font-bold py-3 px-4 rounded-xl hover:shadow-lg hover:scale-[1.02] transition-all active:scale-95 text-sm">
+                        <span x-show="currentMode === 'site'">下載 HTML 官網檔案</span>
+                        <span x-show="currentMode !== 'site'" x-text="'下載 ' + currentSizeLabel + ' 宣傳圖 (JPG)'"></span>
+                    </button>
+                    <p class="text-xs text-gray-400 mt-2 text-center" x-show="currentMode !== 'site'">
+                        使用 <span x-text="currentSizeLabel"></span> 尺寸輸出
+                    </p>
+                </div>
+
+                <!-- 清除資料 -->
+                <div class="text-center">
+                    <button @click="clearAllData()" class="text-xs text-gray-400 hover:text-red-500 transition">
+                        清除所有資料
+                    </button>
+                </div>
+            </div>
+
+            <!-- ===== RIGHT COLUMN - 預覽區 ===== -->
+            <div class="flex-1 min-w-0">
+                <div class="bg-white rounded-xl shadow-sm p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-bold text-gray-700">即時預覽</h2>
+                        <span class="text-xs text-gray-400" data-html2canvas-ignore>
+                            <span x-text="currentSizeLabel"></span> | 拖曳圖片可調整位置
+                        </span>
+                    </div>
+
+                    <!-- 預覽容器 -->
+                    <div class="flex justify-center">
+                        <div x-ref="preview"
+                             :class="currentMode !== 'site' ? sizeClass : 'ratio-3-4'"
+                             class="preview-area w-full max-w-[450px] overflow-hidden relative bg-gray-50 rounded-lg"
+                             @mousedown="startDrag($event)"
+                             @mousemove="onDrag($event)"
+                             @mouseup="stopDrag()"
+                             @mouseleave="stopDrag()"
+                             @touchstart="startDrag($event)"
+                             @touchmove="onDrag($event)"
+                             @touchend="stopDrag()">
+
+                            <!-- ========== SITE MODE ========== -->
+                            <template x-if="currentMode === 'site'">
+                                <div class="w-full h-full flex flex-col bg-white">
+                                    <!-- 大圖區 -->
+                                    <div class="relative w-full h-[55%] overflow-hidden bg-gradient-to-b from-temple-red to-temple-darkRed drag-cursor">
+                                        <template x-if="imageState.src">
+                                            <img :src="imageState.src"
+                                                 :style="`transform: translate(${imageState.posX}px, ${imageState.posY}px) scale(${imageState.scale}); transform-origin: center center;`"
+                                                 class="w-full h-full object-cover pointer-events-none"
+                                                 draggable="false">
+                                        </template>
+                                        <template x-if="!imageState.src">
+                                            <div class="w-full h-full flex items-center justify-center text-white/40 text-sm">
+                                                請上傳宮廟照片
+                                            </div>
+                                        </template>
+                                        <!-- 漸層遮罩 -->
+                                        <div class="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-white to-transparent"></div>
+                                    </div>
+                                    <!-- 資訊卡 -->
+                                    <div class="flex-1 px-6 py-4 flex flex-col justify-center">
+                                        <h2 class="text-2xl font-black text-temple-darkRed mb-2"
+                                            x-text="templeData.name || '宮廟名稱'"></h2>
+                                        <p class="text-sm text-gray-600 mb-1" x-show="templeData.intro"
+                                           x-text="templeData.intro"></p>
+                                        <div class="mt-3 space-y-1 text-xs text-gray-500">
+                                            <p x-show="templeData.address">
+                                                <span class="inline-block w-4">&#x1F4CD;</span>
+                                                <span x-text="templeData.address"></span>
+                                            </p>
+                                            <p x-show="templeData.phone">
+                                                <span class="inline-block w-4">&#x1F4DE;</span>
+                                                <span x-text="templeData.phone"></span>
+                                            </p>
+                                        </div>
+                                        <template x-if="templeData.mapUrl">
+                                            <a :href="templeData.mapUrl" target="_blank"
+                                               class="mt-4 inline-flex items-center justify-center gap-1 bg-temple-red text-white text-xs font-bold py-2 px-4 rounded-full hover:bg-temple-darkRed transition w-fit">
+                                                &#x1F4CD; Google Map 導航
+                                            </a>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- ========== LIGHT MODE (點燈) ========== -->
+                            <template x-if="currentMode === 'light'">
+                                <div class="w-full h-full flex flex-col items-center justify-center text-center relative overflow-hidden"
+                                     style="background: linear-gradient(160deg, #8B0000 0%, #B22222 40%, #CD5C5C 100%);">
+                                    <!-- 裝飾 -->
+                                    <div class="absolute top-0 left-0 w-full h-full opacity-10"
+                                         style="background-image: radial-gradient(circle at 20% 30%, #FFD700 1px, transparent 1px), radial-gradient(circle at 80% 70%, #FFD700 1px, transparent 1px), radial-gradient(circle at 50% 10%, #FFD700 1px, transparent 1px);background-size: 60px 60px, 80px 80px, 40px 40px;"></div>
+
+                                    <!-- 背景圖 -->
+                                    <template x-if="imageState.src">
+                                        <img :src="imageState.src"
+                                             :style="`transform: translate(${imageState.posX}px, ${imageState.posY}px) scale(${imageState.scale}); transform-origin: center center;`"
+                                             class="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none drag-cursor"
+                                             draggable="false">
+                                    </template>
+
+                                    <div class="relative z-10 px-6 py-8 space-y-4">
+                                        <p class="text-temple-gold text-sm tracking-[0.3em] font-bold"
+                                           x-text="templeData.name || '宮廟名稱'"></p>
+                                        <div class="w-16 h-0.5 bg-temple-gold/50 mx-auto"></div>
+                                        <h2 class="text-4xl font-black text-white drop-shadow-lg tracking-wider"
+                                            x-text="templeData.lightName || '光明燈'"></h2>
+                                        <p class="text-temple-gold text-3xl font-black"
+                                           x-text="templeData.lightPrice || 'NT$ 600'"></p>
+                                        <div class="w-16 h-0.5 bg-temple-gold/50 mx-auto"></div>
+                                        <p class="text-red-200 text-sm" x-text="templeData.lightPeriod || ''"></p>
+                                        <p class="text-white/80 text-xs leading-relaxed max-w-[250px] mx-auto"
+                                           x-text="templeData.lightNote || ''"></p>
+                                    </div>
+
+                                    <!-- 底部裝飾 -->
+                                    <div class="absolute bottom-4 left-0 right-0 text-center">
+                                        <p class="text-temple-gold/40 text-xs">&#x2728; 祈福點燈 平安吉祥 &#x2728;</p>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- ========== BIRTHDAY MODE (誕辰) ========== -->
+                            <template x-if="currentMode === 'birthday'">
+                                <div class="w-full h-full flex flex-col items-center justify-center text-center relative overflow-hidden"
+                                     style="background: linear-gradient(180deg, #FFF8DC 0%, #FAEBD7 50%, #F5DEB3 100%);">
+                                    <!-- 裝飾邊框 -->
+                                    <div class="absolute inset-3 border-2 border-temple-gold/30 rounded-lg pointer-events-none"></div>
+
+                                    <div class="relative z-10 px-6 py-6 space-y-3 flex flex-col items-center">
+                                        <p class="text-temple-brown text-xs tracking-[0.5em]">恭祝</p>
+
+                                        <h2 class="text-3xl font-black text-temple-darkRed tracking-wider drop-shadow"
+                                            x-text="templeData.deityName || '天上聖母'"></h2>
+
+                                        <p class="text-temple-gold text-lg font-bold tracking-wider">聖誕千秋</p>
+
+                                        <!-- 神像圖 -->
+                                        <div class="deity-circle my-2 drag-cursor flex-shrink-0">
+                                            <template x-if="imageState.src">
+                                                <img :src="imageState.src"
+                                                     :style="`transform: translate(${imageState.posX}px, ${imageState.posY}px) scale(${imageState.scale}); transform-origin: center center;`"
+                                                     class="w-full h-full object-cover pointer-events-none"
+                                                     draggable="false">
+                                            </template>
+                                            <template x-if="!imageState.src">
+                                                <div class="w-full h-full flex items-center justify-center text-temple-gold/40 text-3xl bg-temple-cream">
+                                                    &#x1F54C;
+                                                </div>
+                                            </template>
+                                        </div>
+
+                                        <div class="space-y-1">
+                                            <p class="text-temple-brown text-sm font-bold"
+                                               x-text="templeData.birthdayDate || '農曆三月二十三日'"></p>
+                                            <p class="text-gray-500 text-xs"
+                                               x-text="templeData.birthdayDateSolar || ''"></p>
+                                        </div>
+
+                                        <p class="text-gray-600 text-xs leading-relaxed max-w-[250px]"
+                                           x-text="templeData.birthdayNote || ''"></p>
+
+                                        <p class="text-temple-red text-sm font-bold mt-2"
+                                           x-text="templeData.name || '宮廟名稱'"></p>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- ========== NOTICE MODE (公告) ========== -->
+                            <template x-if="currentMode === 'notice'">
+                                <div class="w-full h-full bg-white flex flex-col items-center justify-center p-6 relative">
+                                    <!-- 背景圖 (淡) -->
+                                    <template x-if="imageState.src">
+                                        <img :src="imageState.src"
+                                             :style="`transform: translate(${imageState.posX}px, ${imageState.posY}px) scale(${imageState.scale}); transform-origin: center center;`"
+                                             class="absolute inset-0 w-full h-full object-cover opacity-5 pointer-events-none drag-cursor"
+                                             draggable="false">
+                                    </template>
+
+                                    <div class="relative z-10 w-full h-full notice-border p-5 flex flex-col">
+                                        <!-- 公告頭 -->
+                                        <div class="text-center border-b-2 border-temple-red pb-3 mb-4">
+                                            <p class="text-temple-red text-xs tracking-[0.3em] mb-1"
+                                               x-text="templeData.name || '宮廟名稱'"></p>
+                                            <h2 class="text-2xl font-black text-temple-darkRed"
+                                                x-text="'&#x1F4E2; ' + (templeData.noticeTitle || '公告標題')"></h2>
+                                        </div>
+
+                                        <!-- 內文 -->
+                                        <div class="flex-1 overflow-hidden">
+                                            <p class="text-gray-700 text-sm leading-relaxed whitespace-pre-line"
+                                               x-text="templeData.noticeContent || '公告內文...'"></p>
+                                        </div>
+
+                                        <!-- 落款 -->
+                                        <div class="text-right mt-4 pt-3 border-t border-gray-200 space-y-1">
+                                            <p class="text-sm font-bold text-temple-darkRed"
+                                               x-text="templeData.noticeOrg || ''"></p>
+                                            <p class="text-xs text-gray-400"
+                                               x-text="templeData.noticeDate || ''"></p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- 拖曳提示 (截圖時忽略) -->
+                            <div x-show="imageState.src && !imageState.isDragging"
+                                 data-html2canvas-ignore
+                                 class="absolute bottom-2 right-2 bg-black/40 text-white text-[10px] px-2 py-1 rounded pointer-events-none">
+                                拖曳調整圖片
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center text-xs text-gray-400 py-6">
+        宮廟小編神器 v1.0 | 免費開源工具
+    </footer>
+
+    <!-- ===== ALPINE.JS APP LOGIC ===== -->
+    <script>
+        function templeApp() {
+            return {
+                // ===== 模式定義 =====
+                tabs: [
+                    { key: 'site',     label: '&#x1F3E0; 單頁官網' },
+                    { key: 'light',    label: '&#x1F56F; 點燈宣傳' },
+                    { key: 'birthday', label: '&#x1F389; 神明誕辰' },
+                    { key: 'notice',   label: '&#x1F4E2; 公告' },
+                ],
+
+                currentMode: 'site',
+
+                // ===== 尺寸選項 =====
+                sizeOptions: [
+                    { key: '3-4',  label: '3:4',  desc: '一般貼文', ratio: '3/4' },
+                    { key: '1-1',  label: '1:1',  desc: 'IG 貼文',  ratio: '1/1' },
+                    { key: '9-16', label: '9:16', desc: 'IG 限動',  ratio: '9/16' },
+                    { key: '4-3',  label: '4:3',  desc: 'FB 貼文',  ratio: '4/3' },
+                ],
+                selectedSize: '3-4',
+
+                get sizeClass() {
+                    return 'ratio-' + this.selectedSize;
+                },
+                get currentSizeLabel() {
+                    const found = this.sizeOptions.find(s => s.key === this.selectedSize);
+                    return found ? found.label + ' ' + found.desc : '';
+                },
+
+                // ===== 表單資料 =====
+                templeData: {
+                    name: '',
+                    address: '',
+                    phone: '',
+                    mapUrl: '',
+                    intro: '',
+                    lightName: '',
+                    lightPrice: '',
+                    lightPeriod: '',
+                    lightNote: '',
+                    deityName: '',
+                    birthdayDate: '',
+                    birthdayDateSolar: '',
+                    birthdayNote: '',
+                    noticeTitle: '',
+                    noticeContent: '',
+                    noticeOrg: '',
+                    noticeDate: '',
+                },
+
+                // ===== 圖片狀態 =====
+                imageState: {
+                    src: '',
+                    scale: 1,
+                    scale100: 100,
+                    posX: 0,
+                    posY: 0,
+                    isDragging: false,
+                    startX: 0,
+                    startY: 0,
+                },
+
+                // ===== 常用詞彙範本 =====
+                templates: {
+                    light: {
+                        lightName: '光明燈',
+                        lightPrice: 'NT$ 600',
+                        lightPeriod: '農曆正月初一 至 十二月三十日',
+                        lightNote: '點燈祈福，照亮前程。歡迎十方信眾蒞臨本宮登記點燈，祈求闔家平安、事業順利、身體健康。',
+                    },
+                    birthday: {
+                        deityName: '天上聖母',
+                        birthdayDate: '農曆三月二十三日',
+                        birthdayDateSolar: '',
+                        birthdayNote: '欣逢天上聖母聖誕千秋，本宮謹訂於當日舉行祝壽大典，誠邀十方信眾共襄盛舉，同沐聖恩。',
+                    },
+                    notice: {
+                        noticeTitle: '春節開放時間公告',
+                        noticeContent: '茲因農曆春節期間，本宮開放時間調整如下：\n\n除夕（XX月XX日）：上午六時至下午四時\n初一至初五：上午五時至晚間十時\n初六起恢復正常時段：上午六時至晚間九時\n\n祝福各位信眾新春吉祥、萬事如意。',
+                        noticeOrg: '',
+                        noticeDate: '',
+                    },
+                },
+
+                // ===== 初始化 =====
+                init() {
+                    this.loadFromStorage();
+                },
+
+                // ===== 模式切換 =====
+                switchMode(mode) {
+                    this.currentMode = mode;
+                    this.saveToStorage();
+                },
+
+                // ===== 圖片上傳 =====
+                handleImageUpload(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        this.imageState.src = e.target.result;
+                        this.resetImage();
+                        this.saveToStorage();
+                    };
+                    reader.readAsDataURL(file);
+                },
+
+                // ===== 圖片拖曳 =====
+                startDrag(e) {
+                    if (!this.imageState.src) return;
+                    e.preventDefault();
+                    this.imageState.isDragging = true;
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    this.imageState.startX = clientX - this.imageState.posX;
+                    this.imageState.startY = clientY - this.imageState.posY;
+                },
+
+                onDrag(e) {
+                    if (!this.imageState.isDragging) return;
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    this.imageState.posX = clientX - this.imageState.startX;
+                    this.imageState.posY = clientY - this.imageState.startY;
+                },
+
+                stopDrag() {
+                    if (this.imageState.isDragging) {
+                        this.imageState.isDragging = false;
+                        this.saveToStorage();
+                    }
+                },
+
+                resetImage() {
+                    this.imageState.scale = 1;
+                    this.imageState.scale100 = 100;
+                    this.imageState.posX = 0;
+                    this.imageState.posY = 0;
+                    this.saveToStorage();
+                },
+
+                // ===== 常用詞彙範本 =====
+                fillTemplate(mode) {
+                    const tpl = this.templates[mode];
+                    if (!tpl) return;
+                    for (const key in tpl) {
+                        if (tpl[key]) {
+                            this.templeData[key] = tpl[key];
+                        }
+                    }
+                    // 自動填入宮廟名稱到落款
+                    if (mode === 'notice' && this.templeData.name) {
+                        this.templeData.noticeOrg = this.templeData.name + '管理委員會';
+                    }
+                    this.saveToStorage();
+                },
+
+                // ===== LocalStorage 儲存 =====
+                saveToStorage() {
+                    try {
+                        const data = {
+                            currentMode: this.currentMode,
+                            selectedSize: this.selectedSize,
+                            templeData: this.templeData,
+                            imageState: {
+                                src: this.imageState.src,
+                                scale: this.imageState.scale,
+                                scale100: this.imageState.scale100,
+                                posX: this.imageState.posX,
+                                posY: this.imageState.posY,
+                            },
+                        };
+                        localStorage.setItem('templeMarketingData', JSON.stringify(data));
+                    } catch (e) {
+                        // Storage 滿了就忽略
+                    }
+                },
+
+                loadFromStorage() {
+                    try {
+                        const raw = localStorage.getItem('templeMarketingData');
+                        if (!raw) return;
+                        const data = JSON.parse(raw);
+                        if (data.currentMode) this.currentMode = data.currentMode;
+                        if (data.selectedSize) this.selectedSize = data.selectedSize;
+                        if (data.templeData) {
+                            Object.assign(this.templeData, data.templeData);
+                        }
+                        if (data.imageState) {
+                            this.imageState.src = data.imageState.src || '';
+                            this.imageState.scale = data.imageState.scale || 1;
+                            this.imageState.scale100 = data.imageState.scale100 || 100;
+                            this.imageState.posX = data.imageState.posX || 0;
+                            this.imageState.posY = data.imageState.posY || 0;
+                        }
+                    } catch (e) {
+                        // 解析失敗就忽略
+                    }
+                },
+
+                clearAllData() {
+                    if (!confirm('確定要清除所有已填寫的資料嗎?')) return;
+                    localStorage.removeItem('templeMarketingData');
+                    // 重置所有資料
+                    for (const key in this.templeData) {
+                        this.templeData[key] = '';
+                    }
+                    this.imageState.src = '';
+                    this.resetImage();
+                    this.currentMode = 'site';
+                    this.selectedSize = '3-4';
+                },
+
+                // ===== 下載處理 =====
+                handleDownload() {
+                    if (this.currentMode === 'site') {
+                        this.downloadHTML();
+                    } else {
+                        this.downloadImage();
+                    }
+                },
+
+                // ===== 下載 HTML (Site Mode) =====
+                downloadHTML() {
+                    const name = this.templeData.name || '宮廟官網';
+                    const imgTag = this.imageState.src
+                        ? `<img src="${this.imageState.src}" style="width:100%;height:400px;object-fit:cover;" alt="${name}">`
+                        : '';
+                    const mapBtn = this.templeData.mapUrl
+                        ? `<a href="${this.templeData.mapUrl}" target="_blank" style="display:inline-block;background:#B22222;color:#fff;padding:10px 24px;border-radius:50px;text-decoration:none;font-weight:bold;margin-top:16px;">Google Map 導航</a>`
+                        : '';
+
+                    const html = `<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${name}</title>
+<meta name="description" content="${this.templeData.intro || name}">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;background:#f9f9f9;color:#333}
+.hero{width:100%;height:400px;overflow:hidden;background:linear-gradient(135deg,#8B0000,#B22222)}
+.hero img{width:100%;height:100%;object-fit:cover}
+.card{max-width:600px;margin:-40px auto 40px;background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 20px rgba(0,0,0,0.1);position:relative;z-index:1}
+h1{color:#8B0000;font-size:28px;margin-bottom:12px}
+.info{color:#666;font-size:14px;line-height:1.8;margin-top:16px}
+.intro{color:#555;font-size:15px;line-height:1.8;margin-bottom:16px}
+</style>
+</head>
+<body>
+<div class="hero">${imgTag}</div>
+<div class="card">
+<h1>${name}</h1>
+${this.templeData.intro ? `<p class="intro">${this.templeData.intro}</p>` : ''}
+<div class="info">
+${this.templeData.address ? `<p>&#x1F4CD; ${this.templeData.address}</p>` : ''}
+${this.templeData.phone ? `<p>&#x1F4DE; ${this.templeData.phone}</p>` : ''}
+</div>
+${mapBtn}
+</div>
+</body>
+</html>`;
+
+                    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${name}.html`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                },
+
+                // ===== 下載圖片 (其他模式) =====
+                async downloadImage() {
+                    const preview = this.$refs.preview;
+                    if (!preview) return;
+
+                    try {
+                        const canvas = await html2canvas(preview, {
+                            useCORS: true,
+                            scale: 2,
+                            backgroundColor: '#ffffff',
+                            logging: false,
+                        });
+
+                        canvas.toBlob((blob) => {
+                            if (!blob) return;
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            const modeName = { light: '點燈', birthday: '誕辰', notice: '公告' };
+                            a.download = `${this.templeData.name || '宮廟'}\_${modeName[this.currentMode] || this.currentMode}.jpg`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                        }, 'image/jpeg', 0.95);
+                    } catch (err) {
+                        alert('截圖失敗，請再試一次。');
+                        console.error(err);
+                    }
+                },
+            };
+        }
+    </script>
+</body>
+</html>
