@@ -165,6 +165,8 @@
                             </button>
                         </div>
                     </template>
+                    <p x-show="storageWarning" x-text="storageWarning"
+                       class="mt-2 text-xs text-amber-600"></p>
                 </div>
 
                 <!-- 輸出尺寸選擇 (非 Site 模式) -->
@@ -300,6 +302,9 @@
                         <textarea x-model="templeData.noticeContent" @input="saveToStorage()"
                                   rows="5" placeholder="內文..."
                                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none resize-none"></textarea>
+                        <p x-show="noticeOverflow" class="mt-1 text-xs text-amber-600">
+                            &#x26A0;&#xFE0F; 內文太長，超出圖片範圍了（字級已縮到最小）。請縮短內文，或改選較高的尺寸（例如 9:16）。
+                        </p>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-500 mb-1">落款單位</label>
@@ -323,7 +328,7 @@
                         <span x-show="currentMode !== 'site'" x-text="'下載 ' + currentSizeLabel + ' 宣傳圖 (JPG)'"></span>
                     </button>
                     <p class="text-xs text-gray-400 mt-2 text-center" x-show="currentMode !== 'site'">
-                        使用 <span x-text="currentSizeLabel"></span> 尺寸輸出
+                        使用 <span x-text="currentSizeLabel"></span> 尺寸輸出（<span x-text="currentSizePx"></span>）
                     </p>
                 </div>
 
@@ -506,9 +511,12 @@
                                                 x-text="'&#x1F4E2; ' + (templeData.noticeTitle || '公告標題')"></h2>
                                         </div>
 
-                                        <!-- 內文 -->
-                                        <div class="flex-1 overflow-hidden">
-                                            <p class="text-gray-700 text-sm leading-relaxed whitespace-pre-line"
+                                        <!-- 內文：字太多時自動縮小字級，縮到最小還放不下才會被截掉（左側會提醒） -->
+                                        <div class="flex-1 overflow-hidden" x-ref="noticeBody"
+                                             x-effect="fitNotice(templeData.noticeContent, templeData.noticeTitle, templeData.noticeOrg, templeData.noticeDate, selectedSize)"
+                                             @resize.window.debounce.150ms="fitNotice()">
+                                            <p class="text-gray-700 leading-relaxed whitespace-pre-line" x-ref="noticeText"
+                                               style="font-size: 14px;"
                                                x-text="templeData.noticeContent || '公告內文...'"></p>
                                         </div>
 
@@ -557,19 +565,26 @@
 
                 // ===== 尺寸選項 =====
                 sizeOptions: [
-                    { key: '3-4',  label: '3:4',  desc: '一般貼文', ratio: '3/4' },
-                    { key: '1-1',  label: '1:1',  desc: 'IG 貼文',  ratio: '1/1' },
-                    { key: '9-16', label: '9:16', desc: 'IG 限動',  ratio: '9/16' },
-                    { key: '4-3',  label: '4:3',  desc: 'FB 貼文',  ratio: '4/3' },
+                    // w / h 是下載圖片的實際像素（寬度固定 1080，IG / FB 通用）
+                    { key: '3-4',  label: '3:4',  desc: '一般貼文', ratio: '3/4',  w: 1080, h: 1440 },
+                    { key: '1-1',  label: '1:1',  desc: 'IG 貼文',  ratio: '1/1',  w: 1080, h: 1080 },
+                    { key: '9-16', label: '9:16', desc: 'IG 限動',  ratio: '9/16', w: 1080, h: 1920 },
+                    { key: '4-3',  label: '4:3',  desc: 'FB 貼文',  ratio: '4/3',  w: 1080, h: 810 },
                 ],
                 selectedSize: '3-4',
 
                 get sizeClass() {
                     return 'ratio-' + this.selectedSize;
                 },
+                get currentSize() {
+                    return this.sizeOptions.find(s => s.key === this.selectedSize) || this.sizeOptions[0];
+                },
                 get currentSizeLabel() {
                     const found = this.sizeOptions.find(s => s.key === this.selectedSize);
                     return found ? found.label + ' ' + found.desc : '';
+                },
+                get currentSizePx() {
+                    return this.currentSize.w + ' × ' + this.currentSize.h + ' px';
                 },
 
                 // ===== 表單資料 =====
@@ -592,6 +607,10 @@
                     noticeOrg: '',
                     noticeDate: '',
                 },
+
+                // ===== 提示訊息 =====
+                storageWarning: '',      // 圖片存不進瀏覽器時顯示
+                noticeOverflow: false,   // 公告內文超出圖片範圍時顯示
 
                 // ===== 圖片狀態 =====
                 imageState: {
@@ -638,17 +657,47 @@
                     this.saveToStorage();
                 },
 
-                // ===== 圖片上傳 =====
-                handleImageUpload(event) {
+                // ===== 圖片上傳（先縮小再使用，節省瀏覽器儲存空間）=====
+                async handleImageUpload(event) {
                     const file = event.target.files[0];
                     if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        this.imageState.src = e.target.result;
+                    try {
+                        this.imageState.src = await this.compressImage(file);
                         this.resetImage();
-                        this.saveToStorage();
-                    };
-                    reader.readAsDataURL(file);
+                        this.saveImage();
+                    } catch (e) {
+                        alert('無法讀取這張圖片，請改用 JPG 或 PNG 檔。');
+                    }
+                },
+
+                compressImage(file) {
+                    const MAX_SIDE = 2000;
+                    return new Promise((resolve, reject) => {
+                        const url = URL.createObjectURL(file);
+                        const img = new Image();
+                        img.onload = () => {
+                            URL.revokeObjectURL(url);
+                            const w0 = img.naturalWidth, h0 = img.naturalHeight;
+                            if (!w0 || !h0) { reject(new Error('empty image')); return; }
+                            const k = Math.min(1, MAX_SIDE / Math.max(w0, h0));
+                            const c = document.createElement('canvas');
+                            c.width = Math.round(w0 * k);
+                            c.height = Math.round(h0 * k);
+                            const ctx = c.getContext('2d');
+                            ctx.drawImage(img, 0, 0, c.width, c.height);
+                            // PNG 盡量保留透明；太大就轉成 JPEG（透明處補白底）
+                            let out = file.type === 'image/png' ? c.toDataURL('image/png') : '';
+                            if (!out || out.length > 1.5e6) {
+                                ctx.globalCompositeOperation = 'destination-over';
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fillRect(0, 0, c.width, c.height);
+                                out = c.toDataURL('image/jpeg', 0.85);
+                            }
+                            resolve(out);
+                        };
+                        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('load failed')); };
+                        img.src = url;
+                    });
                 },
 
                 // ===== 圖片拖曳 =====
@@ -685,6 +734,24 @@
                     this.saveToStorage();
                 },
 
+                // ===== 公告內文自動縮放字級（14px → 最小 10px）=====
+                fitNotice() {
+                    this.$nextTick(() => {
+                        const body = this.$refs.noticeBody;
+                        const text = this.$refs.noticeText;
+                        if (!body || !text) return;
+                        const MAX = 14, MIN = 10;
+                        let size = MAX;
+                        text.style.fontSize = size + 'px';
+                        while (size > MIN && body.scrollHeight > body.clientHeight + 1) {
+                            size -= 0.5;
+                            text.style.fontSize = size + 'px';
+                        }
+                        const overflow = body.scrollHeight > body.clientHeight + 1;
+                        if (overflow !== this.noticeOverflow) this.noticeOverflow = overflow;
+                    });
+                },
+
                 // ===== 常用詞彙範本 =====
                 fillTemplate(mode) {
                     const tpl = this.templates[mode];
@@ -709,7 +776,6 @@
                             selectedSize: this.selectedSize,
                             templeData: this.templeData,
                             imageState: {
-                                src: this.imageState.src,
                                 scale: this.imageState.scale,
                                 scale100: this.imageState.scale100,
                                 posX: this.imageState.posX,
@@ -722,31 +788,60 @@
                     }
                 },
 
+                // 圖片檔案較大，單獨存放：只在換圖時寫入，且圖片太大時不會連文字資料都存不進去
+                saveImage() {
+                    try {
+                        if (this.imageState.src) {
+                            localStorage.setItem('templeMarketingImage', this.imageState.src);
+                        } else {
+                            localStorage.removeItem('templeMarketingImage');
+                        }
+                        this.storageWarning = '';
+                    } catch (e) {
+                        // 存不下就清掉舊圖，避免重新整理後冒出上一張圖
+                        try { localStorage.removeItem('templeMarketingImage'); } catch (_) {}
+                        this.storageWarning = '圖片太大，無法保存在瀏覽器中；重新整理後需要重新上傳（目前編輯與下載不受影響）。';
+                    }
+                },
+
                 loadFromStorage() {
+                    let legacySrc = '';
                     try {
                         const raw = localStorage.getItem('templeMarketingData');
-                        if (!raw) return;
-                        const data = JSON.parse(raw);
-                        if (data.currentMode) this.currentMode = data.currentMode;
-                        if (data.selectedSize) this.selectedSize = data.selectedSize;
-                        if (data.templeData) {
-                            Object.assign(this.templeData, data.templeData);
-                        }
-                        if (data.imageState) {
-                            this.imageState.src = data.imageState.src || '';
-                            this.imageState.scale = data.imageState.scale || 1;
-                            this.imageState.scale100 = data.imageState.scale100 || 100;
-                            this.imageState.posX = data.imageState.posX || 0;
-                            this.imageState.posY = data.imageState.posY || 0;
+                        if (raw) {
+                            const data = JSON.parse(raw);
+                            if (data.currentMode) this.currentMode = data.currentMode;
+                            if (data.selectedSize) this.selectedSize = data.selectedSize;
+                            if (data.templeData) {
+                                Object.assign(this.templeData, data.templeData);
+                            }
+                            if (data.imageState) {
+                                legacySrc = data.imageState.src || '';  // 舊版把圖片存在同一筆資料裡
+                                this.imageState.scale = data.imageState.scale || 1;
+                                this.imageState.scale100 = data.imageState.scale100 || 100;
+                                this.imageState.posX = data.imageState.posX || 0;
+                                this.imageState.posY = data.imageState.posY || 0;
+                            }
                         }
                     } catch (e) {
                         // 解析失敗就忽略
+                    }
+                    try {
+                        this.imageState.src = localStorage.getItem('templeMarketingImage') || legacySrc;
+                        if (legacySrc && this.imageState.src === legacySrc) {
+                            this.saveImage();       // 把舊版圖片搬到新的位置
+                            this.saveToStorage();   // 並重寫主資料（不再含圖片）
+                        }
+                    } catch (e) {
+                        // 讀不到就當作沒有圖片
                     }
                 },
 
                 clearAllData() {
                     if (!confirm('確定要清除所有已填寫的資料嗎?')) return;
                     localStorage.removeItem('templeMarketingData');
+                    localStorage.removeItem('templeMarketingImage');
+                    this.storageWarning = '';
                     // 重置所有資料
                     for (const key in this.templeData) {
                         this.templeData[key] = '';
@@ -823,12 +918,23 @@ ${mapBtn}
                     if (!preview) return;
 
                     try {
-                        const canvas = await html2canvas(preview, {
+                        // 依預覽寬度算出倍率，讓輸出寬度固定（不會因為螢幕大小不同而變糊）
+                        const size = this.currentSize;
+                        const shot = await html2canvas(preview, {
                             useCORS: true,
-                            scale: 2,
+                            scale: size.w / preview.offsetWidth,
                             backgroundColor: '#ffffff',
                             logging: false,
                         });
+
+                        // 校正成精確的 1080 × N 像素
+                        const canvas = document.createElement('canvas');
+                        canvas.width = size.w;
+                        canvas.height = size.h;
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(shot, 0, 0, canvas.width, canvas.height);
 
                         canvas.toBlob((blob) => {
                             if (!blob) return;
