@@ -12,7 +12,7 @@
 ## 🚀 線上使用
 
 直接開啟網頁即可使用，無需安裝任何軟體：
-[https://你的GitHub帳號.github.io/templetry/](https://你的GitHub帳號.github.io/templetry/)
+[https://yehwanlan.github.io/TempleEasyPdf/](https://yehwanlan.github.io/TempleEasyPdf/)
 
 ## 💡 使用方式
 
@@ -31,15 +31,17 @@
 
 ## 🔧 本地開發
 
+網站檔案只有一份：`docs/index.html`（GitHub Pages 也是從 `docs/` 發佈），修改這個檔案即可。
+
 ```bash
-# 直接開啟 index.html 即可
+# 直接開啟 docs/index.html 即可
 # 或使用簡易伺服器
-python -m http.server 8000
+python -m http.server 8000 --directory docs
 ```
 
 ## 📄 授權
 
-MIT License - 自由使用、修改、分發
+MIT License - 自由使用、修改、分發，詳見 [LICENSE](LICENSE)
 
 ## 🙏 貢獻
 
