@@ -246,6 +246,9 @@
                         <textarea x-model="templeData.lightNote" @input="saveToStorage()"
                                   rows="2" placeholder="歡迎信眾蒞臨點燈祈福..."
                                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none resize-none"></textarea>
+                        <p x-show="cardOverflow" class="mt-1 text-xs text-amber-600">
+                            &#x26A0;&#xFE0F; 內容太多，超出圖片範圍了（已縮到最小）。請縮短說明文字，或改選較高的尺寸（例如 9:16）。
+                        </p>
                     </div>
                 </div>
 
@@ -280,6 +283,9 @@
                         <textarea x-model="templeData.birthdayNote" @input="saveToStorage()"
                                   rows="2" placeholder="誠邀十方信眾共襄盛舉..."
                                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-temple-red focus:border-transparent outline-none resize-none"></textarea>
+                        <p x-show="cardOverflow" class="mt-1 text-xs text-amber-600">
+                            &#x26A0;&#xFE0F; 內容太多，超出圖片範圍了（已縮到最小）。請縮短說明文字，或改選較高的尺寸（例如 9:16）。
+                        </p>
                     </div>
                 </div>
 
@@ -424,7 +430,10 @@
                                              draggable="false">
                                     </template>
 
-                                    <div class="relative z-10 px-6 py-8 space-y-4">
+                                    <!-- 內容太高時自動縮小（先縮說明文字，再整體縮小），縮到下限仍放不下才會被截掉（左側會提醒） -->
+                                    <div class="relative z-10 px-6 py-8 space-y-4" x-ref="lightBody"
+                                         x-effect="fitCard('light', templeData.name, templeData.lightName, templeData.lightPrice, templeData.lightPeriod, templeData.lightNote, selectedSize)"
+                                         @resize.window.debounce.150ms="fitCard('light')">
                                         <p class="text-temple-gold text-sm tracking-[0.3em] font-bold"
                                            x-text="templeData.name || '宮廟名稱'"></p>
                                         <div class="w-16 h-0.5 bg-temple-gold/50 mx-auto"></div>
@@ -434,7 +443,8 @@
                                            x-text="templeData.lightPrice || 'NT$ 600'"></p>
                                         <div class="w-16 h-0.5 bg-temple-gold/50 mx-auto"></div>
                                         <p class="text-red-200 text-sm" x-text="templeData.lightPeriod || ''"></p>
-                                        <p class="text-white/80 text-xs leading-relaxed max-w-[250px] mx-auto"
+                                        <p class="text-white/80 leading-relaxed max-w-[250px] mx-auto" x-ref="lightNoteText"
+                                           style="font-size: 12px;"
                                            x-text="templeData.lightNote || ''"></p>
                                     </div>
 
@@ -452,7 +462,10 @@
                                     <!-- 裝飾邊框 -->
                                     <div class="absolute inset-3 border-2 border-temple-gold/30 rounded-lg pointer-events-none"></div>
 
-                                    <div class="relative z-10 px-6 py-6 space-y-3 flex flex-col items-center">
+                                    <!-- 內容太高時自動縮小（先縮說明文字，再整體縮小），縮到下限仍放不下才會被截掉（左側會提醒） -->
+                                    <div class="relative z-10 px-6 py-6 space-y-3 flex flex-col items-center" x-ref="birthdayBody"
+                                         x-effect="fitCard('birthday', templeData.name, templeData.deityName, templeData.birthdayDate, templeData.birthdayDateSolar, templeData.birthdayNote, selectedSize)"
+                                         @resize.window.debounce.150ms="fitCard('birthday')">
                                         <p class="text-temple-brown text-xs tracking-[0.5em]">恭祝</p>
 
                                         <h2 class="text-3xl font-black text-temple-darkRed tracking-wider drop-shadow"
@@ -482,7 +495,8 @@
                                                x-text="templeData.birthdayDateSolar || ''"></p>
                                         </div>
 
-                                        <p class="text-gray-600 text-xs leading-relaxed max-w-[250px]"
+                                        <p class="text-gray-600 leading-relaxed max-w-[250px]" x-ref="birthdayNoteText"
+                                           style="font-size: 12px;"
                                            x-text="templeData.birthdayNote || ''"></p>
 
                                         <p class="text-temple-red text-sm font-bold mt-2"
@@ -611,6 +625,7 @@
                 // ===== 提示訊息 =====
                 storageWarning: '',      // 圖片存不進瀏覽器時顯示
                 noticeOverflow: false,   // 公告內文超出圖片範圍時顯示
+                cardOverflow: false,     // 點燈 / 誕辰內容超出圖片範圍時顯示
 
                 // ===== 圖片狀態 =====
                 imageState: {
@@ -749,6 +764,33 @@
                         }
                         const overflow = body.scrollHeight > body.clientHeight + 1;
                         if (overflow !== this.noticeOverflow) this.noticeOverflow = overflow;
+                    });
+                },
+
+                // ===== 點燈 / 誕辰：內容太高時自動縮小 =====
+                // 先把說明文字縮小（12px → 最小 10px），還放不下再整體等比例縮小（最小 0.6 倍）
+                fitCard(mode) {
+                    this.$nextTick(() => {
+                        const body = this.$refs[mode + 'Body'];
+                        const note = this.$refs[mode + 'NoteText'];
+                        if (!body || !note) return;
+                        // 點燈模式底部有裝飾文字，上下各預留 32px
+                        const room = body.parentElement.clientHeight - (mode === 'light' ? 64 : 0);
+                        const MAX_NOTE = 12, MIN_NOTE = 10, MIN_SCALE = 0.6;
+                        let size = MAX_NOTE;
+                        body.style.transform = '';
+                        note.style.fontSize = size + 'px';
+                        while (size > MIN_NOTE && body.offsetHeight > room) {
+                            size -= 0.5;
+                            note.style.fontSize = size + 'px';
+                        }
+                        let scale = 1;
+                        if (body.offsetHeight > room) {
+                            scale = Math.max(MIN_SCALE, room / body.offsetHeight);
+                            body.style.transform = `scale(${scale})`;
+                        }
+                        const overflow = body.offsetHeight * scale > room + 1;
+                        if (overflow !== this.cardOverflow) this.cardOverflow = overflow;
                     });
                 },
 
